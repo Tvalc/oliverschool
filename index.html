@@ -1,0 +1,36 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Snib Tower Defense Extravaganza Celebration</title>
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+    <div id="main-menu" class="menu-overlay">
+        <h1>Snib Tower Defense Extravaganza Celebration</h1>
+        <button id="start-game-btn" class="menu-btn">Start Game</button>
+    </div>
+    <div id="pause-menu" class="menu-overlay hidden">
+        <h2>Paused</h2>
+        <button id="resume-game-btn" class="menu-btn">Resume</button>
+        <button id="quit-game-btn" class="menu-btn">Quit</button>
+    </div>
+    <div id="game-container">
+        <canvas id="game-canvas" width="960" height="600"></canvas>
+        <div id="hud">
+            <div id="hud-health" class="hud-item"></div>
+            <div id="hud-snibglitter" class="hud-item"></div>
+            <div id="hud-stage" class="hud-item"></div>
+            <div id="hud-wave" class="hud-item"></div>
+            <button id="open-build-menu" class="hud-item hud-btn">⚒️ Build Tower</button>
+            <button id="start-wave-btn" class="hud-item hud-btn">▶️ Start Wave</button>
+            <button id="pause-btn" class="hud-item hud-btn">⏸️</button>
+        </div>
+        <div id="build-menu" class="build-menu hidden"></div>
+    </div>
+    <!-- Script order is critical for dependency injection -->
+    <script src="utils.js"></script>
+    <script src="gameEngine.js"></script>
+    <script src="main.js"></script>
+</body>
+</html>
