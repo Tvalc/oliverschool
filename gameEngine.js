@@ -228,28 +228,82 @@
             this._rollStartY = this.y;
             this._rollDist = 0;
             this._rollMaxDist = 0;
+            // --- NEW: Track rolling path segment ---
+            this._rollPathIndex = 0;
+            this._rollProgress = 0;
         }
         update(dt, allEnemies, playerPos) {
             if (this.dead) return;
-            // If rolling, rush toward player
             if (this._rolling) {
                 // Rolling animation
                 this._rollAnim += dt * 12;
-                // Move toward last known player position
-                if (!this._rollTarget && playerPos) {
-                    this._rollTarget = { x: playerPos.x, y: playerPos.y };
-                    this._rollAngle = Math.atan2(this._rollTarget.y - this.y, this._rollTarget.x - this.x);
-                    this._rollStartX = this.x;
-                    this._rollStartY = this.y;
-                    this._rollDist = 0;
-                    this._rollMaxDist = Math.min(220, SnibUtils.dist(this.x, this.y, this._rollTarget.x, this._rollTarget.y));
+                // --- NEW: Move along path toward player, not direct line ---
+                if (this._rollTarget === null && playerPos) {
+                    // Find nearest path point to player
+                    let minDist = Infinity, minIdx = 0;
+                    for (let i = 0; i < this.path.length; ++i) {
+                        let d = SnibUtils.dist(this.path[i].x, this.path[i].y, playerPos.x, playerPos.y);
+                        if (d < minDist) {
+                            minDist = d;
+                            minIdx = i;
+                        }
+                    }
+                    // Set rolling target as the nearest path point to player
+                    this._rollTarget = { x: this.path[minIdx].x, y: this.path[minIdx].y, idx: minIdx };
+                    // Start rolling from current position along the path
+                    // Find nearest segment to current position
+                    let nearestSeg = 0;
+                    let minSegDist = Infinity;
+                    for (let i = 0; i < this.path.length - 1; ++i) {
+                        // Project current position onto segment
+                        let a = this.path[i], b = this.path[i+1];
+                        let dx = b.x - a.x, dy = b.y - a.y;
+                        let l2 = dx*dx + dy*dy;
+                        let t = ((this.x - a.x) * dx + (this.y - a.y) * dy) / (l2 || 1);
+                        t = Math.max(0, Math.min(1, t));
+                        let px = a.x + t * dx, py = a.y + t * dy;
+                        let d = Math.hypot(this.x - px, this.y - py);
+                        if (d < minSegDist) {
+                            minSegDist = d;
+                            nearestSeg = i;
+                            this._rollProgress = t * Math.hypot(dx, dy);
+                        }
+                    }
+                    this._rollPathIndex = nearestSeg;
                 }
+                // Move along path toward _rollTarget.idx
+                let done = false;
                 let move = this._rollSpeed * dt * 60;
-                this.x += Math.cos(this._rollAngle) * move;
-                this.y += Math.sin(this._rollAngle) * move;
-                this._rollDist += move;
-                // End roll if reached max distance or close to target
-                if (this._rollDist >= this._rollMaxDist || (this._rollTarget && SnibUtils.dist(this.x, this.y, this._rollTarget.x, this._rollTarget.y) < 18)) {
+                while (move > 0 && !done) {
+                    let curIdx = this._rollPathIndex;
+                    let nextIdx = curIdx + 1;
+                    if (nextIdx >= this.path.length) {
+                        done = true;
+                        break;
+                    }
+                    let a = this.path[curIdx], b = this.path[nextIdx];
+                    let segLen = Math.hypot(b.x - a.x, b.y - a.y);
+                    let remain = segLen - this._rollProgress;
+                    if (move < remain) {
+                        this._rollProgress += move;
+                        let t = this._rollProgress / segLen;
+                        this.x = SnibUtils.lerp(a.x, b.x, t);
+                        this.y = SnibUtils.lerp(a.y, b.y, t);
+                        move = 0;
+                    } else {
+                        move -= remain;
+                        this._rollPathIndex++;
+                        this._rollProgress = 0;
+                        this.x = b.x;
+                        this.y = b.y;
+                        if (this._rollPathIndex >= this._rollTarget.idx) {
+                            done = true;
+                        }
+                    }
+                }
+                // End roll if reached target path point or close
+                if ((this._rollPathIndex >= this._rollTarget.idx) ||
+                    (SnibUtils.dist(this.x, this.y, this._rollTarget.x, this._rollTarget.y) < 18)) {
                     this._rolling = false;
                     this._rollAnim = 0;
                     this._rollTarget = null;
@@ -257,22 +311,26 @@
                     this._rollCooldown = 1.5 + Math.random() * 2.5;
                 }
             } else {
-                // Walking: move back and forth along a short segment (simulate "patrol")
-                this._walkAnim += dt * 7;
-                this._walkTime += dt;
+                // Walking: move forward along path, animating walk
+                this.walkAnim += dt * 7 * (this.slowTimer > 0 ? 0.6 : 1.0);
                 let cur = this.path[this.pathIndex];
                 let next = this.path[this.pathIndex + 1];
                 if (!next) return;
                 let dx = next.x - cur.x, dy = next.y - cur.y;
                 let dist = Math.hypot(dx, dy);
-                let move = dt * this._normalSpeed * 60 * this._walkDir;
+                let move = dt * this._normalSpeed * 60;
                 this.progress += move;
                 if (this.progress >= dist) {
-                    this.progress = dist;
-                    this._walkDir = -1;
-                } else if (this.progress <= 0) {
-                    this.progress = 0;
-                    this._walkDir = 1;
+                    this.pathIndex++;
+                    if (this.pathIndex >= this.path.length - 1) {
+                        this.x = next.x; this.y = next.y;
+                        return;
+                    }
+                    this.progress -= dist;
+                    cur = this.path[this.pathIndex];
+                    next = this.path[this.pathIndex + 1];
+                    dx = next.x - cur.x; dy = next.y - cur.y;
+                    dist = Math.hypot(dx, dy);
                 }
                 let t = this.progress / dist;
                 this.x = SnibUtils.lerp(cur.x, next.x, t);
@@ -738,19 +796,33 @@
         }
 
         spawnEnemies() {
-            // Replace all colored bubbles with Coinboy
+            // --- MIX OF COINBOYS AND DOOMSHROOMS ---
             const baseCount = 6 + Math.floor(this.wave * 1.4);
             for (let i = 0; i < baseCount; ++i) {
-                let def = {
-                    name: "Coinboy",
-                    health: 60 + this.wave * 7,
-                    speed: 1.1 + this.wave * 0.008,
-                    type: "ground",
-                    color: "#f6c94a",
-                    reward: 15 + Math.floor(this.wave * 2.5),
-                    isCoinboy: true
-                };
-                this.waveEnemies.push(new CoinboyEnemy(def, this.path.points, this.wave, null));
+                let isDoom = Math.random() < 0.35 + 0.03 * this.wave; // 35%+ chance per wave
+                if (isDoom) {
+                    let def = {
+                        name: "Doomshroom",
+                        health: 110 + this.wave * 11,
+                        speed: 0.82 + this.wave * 0.007,
+                        type: "ground",
+                        color: "#6b4d7e",
+                        reward: 22 + Math.floor(this.wave * 2.8),
+                        isDoomShroom: true
+                    };
+                    this.waveEnemies.push(new DoomShroomEnemy(def, this.path.points, this.wave));
+                } else {
+                    let def = {
+                        name: "Coinboy",
+                        health: 60 + this.wave * 7,
+                        speed: 1.1 + this.wave * 0.008,
+                        type: "ground",
+                        color: "#f6c94a",
+                        reward: 15 + Math.floor(this.wave * 2.5),
+                        isCoinboy: true
+                    };
+                    this.waveEnemies.push(new CoinboyEnemy(def, this.path.points, this.wave, null));
+                }
             }
             if (this.wave >= this.maxWaves && !this.bossSpawned) {
                 // Boss is a big Coinboy
